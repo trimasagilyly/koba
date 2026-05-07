@@ -1,7 +1,5 @@
 export type AgentType = "fundamentalist" | "momentum" | "noise" | "hft" | "whale";
 
-export type ActiveAgentType = Exclude<AgentType, "whale">;
-
 export interface Agent {
   id: number;
   type: AgentType;
@@ -69,7 +67,7 @@ export interface ScenarioMetrics {
   /** GINI time-series snapshot taken when the scenario was saved */
   giniHistory: GiniPoint[];
   /** Cumulative buy+sell stats per agent type for this scenario */
-  tradesByType: Record<ActiveAgentType, AgentTradeStat>;
+  tradesByType: Record<AgentType, AgentTradeStat>;
 }
 
 export interface StockInfo {
