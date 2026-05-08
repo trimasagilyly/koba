@@ -5,13 +5,13 @@ import type {
   StockInfo,
   AgentBehaviorParams,
 } from "../types";
-import { computeHFTQuotes } from "./computeHFTQuotes";
 import { computeEnrichedFairValue } from "./computeEnrichedFairValue";
 import { computeSeededSigma } from "./computeSeededSigma";
 import { compositeSignal } from "./compositeSignal";
 import { rsi } from "./rsi";
 import { T0_VOLUME_SCALE } from "../constants/simulation";
 
+// Hàm hỗ trợ tạo số lượng cổ phiếu ngẫu nhiên theo lô 100
 function getRandomLots(min: number, max: number): number {
   const lo = Math.max(1, Math.round(min / 100));
   const hi = Math.max(lo, Math.round(max / 100));
@@ -32,16 +32,19 @@ export function agentDecideForStock(
   const isT0 = settlement === "T+0";
   const beta = stock.beta ?? 1.0;
 
+  // Hệ số tùy chỉnh hành vi từ params
   const fundGapMult = behaviorParams?.fundGapMult ?? 1.0;
   const momSensitMult = behaviorParams?.momSensitMult ?? 1.0;
   const hftSpreadMult = behaviorParams?.hftSpreadMult ?? 1.0;
   const noiseRateMult = behaviorParams?.noiseRateMult ?? 1.0;
 
+  // Tính toán độ biến động nội sinh (sigma)
   const sigma = computeSeededSigma(stock, priceHistory, midPrice);
   const currentShares = agent.shares?.[stock.symbol] ?? 0;
   const lockedShares = agent.lockedShares?.[stock.symbol] ?? 0;
   const effectiveInventory = currentShares + lockedShares;
 
+  // Xác định tổng tài sản để kiểm tra khả năng sống sót của tác nhân
   let portfolioValue = 0;
   Object.keys(agent.shares || {}).forEach((sym) => {
     const price = sym === stock.symbol ? midPrice : stock.initialPrice;
@@ -60,15 +63,23 @@ export function agentDecideForStock(
   let side: "buy" | "sell" | null = null;
   let price = midPrice;
   let targetQty = 0;
+  
+  // Tính V_fair (Giá trị hợp lý mở rộng)
   let enrichedFairValue = computeEnrichedFairValue(stock);
 
+  // Điều chỉnh V_fair theo kỳ vọng thị trường (Bounded rationality)
   if (priceHistory.length > 50) {
     const sma50 = priceHistory.slice(-50).reduce((a, b) => a + b, 0) / 50;
     enrichedFairValue = enrichedFairValue * 0.8 + sma50 * 0.2;
   }
 
+  // ---------------------------------------------------------
+  // 1. NHÀ ĐẦU TƯ GIÁ TRỊ (Fundamentalist)
+  // ---------------------------------------------------------
   if (agent.type === "fundamentalist") {
+    // Gap = (V_fair - P_mid) / V_fair
     const gapPct = (enrichedFairValue - midPrice) / enrichedFairValue;
+    // T_i = (0.01 + (i mod 7) * 0.005) * mu_fund
     const personalTolerance = (0.01 + (agent.id % 7) * 0.005) * fundGapMult;
 
     if (gapPct > personalTolerance) {
@@ -88,60 +99,71 @@ export function agentDecideForStock(
         Math.floor(8 * volumeScale * severity),
       );
     }
-  } else if (agent.type === "momentum") {
+  } 
+  
+  // ---------------------------------------------------------
+  // 2. NHÀ ĐẦU TƯ THEO XU HƯỚNG (Momentum)
+  // ---------------------------------------------------------
+  else if (agent.type === "momentum") {
+    // S_combined = 0.75 * S_tech + 0.25 * (beta * R_m)
     const signal = compositeSignal(priceHistory);
     const combinedSignal = signal * 0.75 + marketReturn * beta * 0.25;
-    const personalSensitivity =
-      (0.002 + (agent.id % 20) * 0.001) * momSensitMult;
+    
+    const personalSensitivity = (0.002 + (agent.id % 20) * 0.001) * momSensitMult;
     const sigmaPct = midPrice > 0 ? sigma / midPrice : 0.002;
+    
+    // Vol_scale = min(1.5, max(0.5, 1 + (sigma/P_mid - 0.01) * 15))
     const volScale = Math.min(1.5, Math.max(0.5, 1 + (sigmaPct - 0.01) * 15));
-    const rsiVal = rsi(
-      priceHistory,
-      Math.min(14, Math.floor(priceHistory.length / 2)),
-    );
+    const rsiVal = rsi(priceHistory, Math.min(14, Math.floor(priceHistory.length / 2)));
 
+    // Ràng buộc RSI: Tránh trạng thái quá mua (>85) và quá bán (<15)
     if (combinedSignal > personalSensitivity && rsiVal < 85) {
       side = "buy";
       const aggr = isT0
         ? 0.002 + Math.abs(combinedSignal) * 0.004
         : 0.001 + Math.abs(combinedSignal) * 0.002;
       price = midPrice * (1 + aggr);
-      targetQty = getRandomLots(
-        Math.floor(5 * volScale),
-        Math.floor(15 * volScale),
-      );
+      targetQty = getRandomLots(Math.floor(5 * volScale), Math.floor(15 * volScale));
     } else if (combinedSignal < -personalSensitivity && rsiVal > 15) {
       side = "sell";
       const aggr = isT0
         ? 0.002 + Math.abs(combinedSignal) * 0.004
         : 0.001 + Math.abs(combinedSignal) * 0.002;
       price = midPrice * (1 - aggr);
-      targetQty = getRandomLots(
-        Math.floor(10 * volScale),
-        Math.floor(20 * volScale),
-      );
+      targetQty = getRandomLots(Math.floor(10 * volScale), Math.floor(20 * volScale));
     }
-  } else if (agent.type === "hft") {
-    const targetInv = Math.floor(5_000_000 / 50);
-    const { resPrice, spreadHalf: rawSpreadHalf } = computeHFTQuotes(
-      midPrice,
-      effectiveInventory,
-      targetInv,
-      sigma,
-      isT0,
-    );
-    const spreadHalf = rawSpreadHalf * hftSpreadMult;
+  } 
+  
+  // ---------------------------------------------------------
+  // 3. NHÀ GIAO DỊCH TẦN SUẤT CAO (HFT)
+  // ---------------------------------------------------------
+  else if (agent.type === "hft") {
+    const targetInv = Math.floor(5_000_000 / 50); // Mức mục tiêu giả định
+    const gamma = 0.1; // Hệ số ngại rủi ro
+    const kappa = 100; // Độ sâu thanh khoản (market liquidity)
+    
+    // q = max(-1, min(1, (Inv_current - Inv_target) / Inv_target))
+    const q = Math.max(-1, Math.min(1, (effectiveInventory - targetInv) / targetInv));
+    
+    // P_res = P_mid - q * gamma * sigma^2
+    const variance = Math.pow(sigma, 2);
+    const Pres = midPrice - q * gamma * variance;
+    
+    // delta = gamma * sigma^2 + (2/gamma) * ln(1 + gamma/kappa)
+    const rawSpread = gamma * variance + (2 / gamma) * Math.log(1 + gamma / kappa);
+    const delta = rawSpread * hftSpreadMult;
 
-    const invImbalance = effectiveInventory - targetInv;
-    side =
-      invImbalance < 0
-        ? "buy"
-        : invImbalance > 0
-          ? "sell"
-          : Math.random() > 0.5
-            ? "buy"
-            : "sell";
-    price = side === "buy" ? resPrice - spreadHalf : resPrice + spreadHalf;
+    // Đặt lệnh mua hoặc bán dựa trên trạng thái tồn kho
+    if (q < 0) {
+        side = "buy";
+    } else if (q > 0) {
+        side = "sell";
+    } else {
+        side = Math.random() > 0.5 ? "buy" : "sell"; // Cân bằng, cung cấp thanh khoản ngẫu nhiên
+    }
+
+    // P_bid = P_res - delta/2; P_ask = P_res + delta/2
+    price = side === "buy" ? Pres - delta / 2 : Pres + delta / 2;
 
     const sigmaPct = sigma / midPrice;
     const volPenalty = Math.max(0.2, 1 - (sigmaPct - 0.01) * 10);
@@ -149,55 +171,28 @@ export function agentDecideForStock(
       Math.floor(2 * volumeScale * volPenalty),
       Math.floor(6 * volumeScale * volPenalty),
     );
-  } else if (agent.type === "whale") {
-    if (
-      agent.parentOrder &&
-      agent.parentOrder.symbol === stock.symbol &&
-      agent.parentOrder.remaining > 0
-    ) {
-      const po = agent.parentOrder;
-      const childQty = Math.min(po.childSize, po.remaining);
-      side = po.side;
-      price = side === "buy" ? midPrice * 0.998 : midPrice * 1.002;
-      targetQty = childQty;
-      po.remaining -= childQty;
-      if (po.remaining <= 0) agent.parentOrder = undefined;
-    } else if (!agent.parentOrder && Math.random() < 0.05) {
-      const gapPct = (enrichedFairValue - midPrice) / enrichedFairValue;
-      const signal = compositeSignal(priceHistory);
-      if (Math.abs(gapPct) > 0.05 || Math.abs(signal) > 0.3) {
-        const dir: "buy" | "sell" = gapPct > 0 || signal > 0 ? "buy" : "sell";
-        const totalQty = getRandomLots(100_000, 1_000_000);
-        const childSize = Math.max(
-          10_000,
-          Math.round((totalQty * 0.1) / 100) * 100,
-        );
-        const estPrice = dir === "buy" ? midPrice * 0.998 : midPrice * 1.002;
-        if (dir === "buy" && agent.cash < estPrice * childSize) return null;
-        agent.parentOrder = {
-          symbol: stock.symbol,
-          side: dir,
-          remaining: totalQty - childSize,
-          childSize,
-        };
-        side = dir;
-        price = estPrice;
-        targetQty = childSize;
-      }
-    }
-  } else {
-    // Noise trader
-    const noiseThreshold = Math.min(
-      0.95,
-      Math.max(0.05, 1 - 0.15 * noiseRateMult * (isT0 ? 2 : 1)),
-    );
+  } 
+
+  // ---------------------------------------------------------
+  // 4. NHÀ ĐẦU TƯ NHIỄU (Noise Trader)
+  // ---------------------------------------------------------
+  else {
+    const baseNoise = 0.15;
+    // Ngưỡng U(0,1) > max(0.05, 1 - Base_noise * mu_noise)
+    const noiseThreshold = Math.max(0.05, 1 - baseNoise * noiseRateMult * (isT0 ? 2 : 1));
+    
     if (Math.random() > noiseThreshold) {
       side = Math.random() < 0.5 ? "buy" : "sell";
-      price = midPrice * (1 + (Math.random() - 0.5) * 0.01);
+      // epsilon ~ U(-0.005, 0.005) => (Math.random() - 0.5) * 0.01
+      const epsilon = (Math.random() - 0.5) * 0.01;
+      price = midPrice * (1 + epsilon);
       targetQty = getRandomLots(volumeScale, 5 * volumeScale);
     }
   }
 
+  // ---------------------------------------------------------
+  // KIỂM TRA ĐIỀU KIỆN ĐẶT LỆNH CHUNG
+  // ---------------------------------------------------------
   if (!side || targetQty <= 0 || !isFinite(price) || price <= 0) return null;
 
   let finalQty = targetQty;
@@ -209,6 +204,7 @@ export function agentDecideForStock(
   if (side === "sell") {
     const maxLots = Math.floor(Math.max(0, currentShares) / 100);
     if (agent.type === "hft") {
+      // HFT được phép bán khống (Short-selling) với giới hạn ký quỹ
       const shortLimitLots = Math.floor(
         (Math.max(0, agent.cash || 0) * 0.5) / (price * 100),
       );
@@ -221,6 +217,7 @@ export function agentDecideForStock(
     }
   }
 
+  // Điều chỉnh giá theo biên độ (Price Limit / Circuit Breaker)
   if (settlement !== "T+0") {
     const refPrice =
       priceHistory.length > 0

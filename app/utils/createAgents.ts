@@ -83,32 +83,5 @@ export function createAgents(
     }
   });
 
-  // 5 institutional whales — fixed count, Almgren-Chriss parent→child slicing
-  for (let i = 0; i < 5; i++) {
-    const sharesMap: Record<string, number> = {};
-    const lockedSharesMap: Record<string, number> = {};
-    SIM_SYMBOLS.forEach((sym) => {
-      sharesMap[sym] = 0;
-      lockedSharesMap[sym] = 0;
-    });
-    let totalPortfolioValue = 0;
-    const shuffled = [...SIM_SYMBOLS].sort(() => 0.5 - Math.random());
-    shuffled.slice(0, Math.floor(SIM_SYMBOLS.length * 0.4)).forEach((sym) => {
-      const price =
-        SIM_STOCKS.find((s) => s.symbol === sym)?.initialPrice ?? 10_000;
-      const shares = Math.floor(getLognormalRandom(11, 0.4)) * 1_000;
-      sharesMap[sym] = shares;
-      totalPortfolioValue += shares * price;
-    });
-    agents.push({
-      id: id++,
-      type: "whale",
-      cash: totalPortfolioValue * 1.5,
-      shares: sharesMap,
-      lockedCash: 0,
-      lockedShares: lockedSharesMap,
-    });
-  }
-
   return agents;
 }

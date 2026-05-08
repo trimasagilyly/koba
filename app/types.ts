@@ -1,6 +1,6 @@
-export type AgentType = "fundamentalist" | "momentum" | "noise" | "hft" | "whale";
+export type AgentType = "fundamentalist" | "momentum" | "noise" | "hft";
 
-export type ActiveAgentType = Exclude<AgentType, "whale">;
+export type ActiveAgentType = AgentType;
 
 export interface Agent {
   id: number;
@@ -9,13 +9,6 @@ export interface Agent {
   shares: Record<string, number>;
   lockedCash: number;
   lockedShares: Record<string, number>;
-  // Whale execution state: Almgren-Chriss (2000) parent→child order slicing
-  parentOrder?: {
-    symbol: string;
-    side: "buy" | "sell";
-    remaining: number;
-    childSize: number;
-  };
 }
 
 export interface Order {

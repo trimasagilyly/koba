@@ -10,7 +10,6 @@ export function computeAgentWealthShares(
   const byType = { fundamentalist: 0, momentum: 0, hft: 0, noise: 0 };
 
   for (const a of agents) {
-    if (a.type === "whale") continue;
     let portfolioValue = 0;
     for (const sym of Object.keys(a.shares || {}))
       portfolioValue += (a.shares[sym] || 0) * (currentPrices[sym] || 10000);
