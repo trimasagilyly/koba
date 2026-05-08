@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { fetchAllStocks, initStockData, API_BASE_URL } from "../constants";
+import { fetchAllStocks, API_BASE_URL } from "../utils/api";
+import { initStockData } from "../utils/stockData";
 import type { StockInfo } from "../types";
 
 export type StockLoadState = "loading" | "ready" | "error";
