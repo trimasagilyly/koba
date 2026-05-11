@@ -44,8 +44,21 @@ export function matchOrders(
 
     if (bb.price < ba.price) break;
 
-    const tradePrice = safe(bb.id < ba.id ? bb.price : ba.price, lob.midPrice);
-    const tradeQty = Math.min(bb.qty, ba.qty);
+   const rawTradePrice = safe((bb.price + ba.price) / 2, lob.midPrice);
+
+// Giới hạn độ nhảy giá trong một lần khớp để tránh cây nến đầu bị spike.
+// T+0 cho phép biến động nhanh hơn T+2.5 một chút.
+const maxTradeMovePct = settlement === "T+0" ? 0.005 : 0.003;
+
+const lowerBound = lob.midPrice * (1 - maxTradeMovePct);
+const upperBound = lob.midPrice * (1 + maxTradeMovePct);
+
+const tradePrice = safe(
+  Math.min(upperBound, Math.max(lowerBound, rawTradePrice)),
+  lob.midPrice,
+);
+
+const tradeQty = Math.min(bb.qty, ba.qty);
 
     if (tradePrice <= 0 || tradeQty <= 0) {
       lob.bids.shift();
