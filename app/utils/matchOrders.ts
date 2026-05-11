@@ -44,23 +44,15 @@ export function matchOrders(
 
     if (bb.price < ba.price) break;
 
-   const rawTradePrice = safe((bb.price + ba.price) / 2, lob.midPrice);
+    /**
+     * Giá khớp dùng midpoint giữa bid và ask thay vì lấy giá của lệnh nào vào trước.
+     * Cách cũ dễ tạo bias vì nếu bid aggressive được tạo trước thì giá bị kéo lên mạnh.
+     */
+    const rawTradePrice = safe((bb.price + ba.price) / 2, lob.midPrice);
 
-// Giới hạn độ nhảy giá trong một lần khớp để tránh cây nến đầu bị spike.
-// T+0 cho phép biến động nhanh hơn T+2.5 một chút.
-const maxTradeMovePct = settlement === "T+0" ? 0.005 : 0.003;
+    const tradeQty = Math.min(bb.qty, ba.qty);
 
-const lowerBound = lob.midPrice * (1 - maxTradeMovePct);
-const upperBound = lob.midPrice * (1 + maxTradeMovePct);
-
-const tradePrice = safe(
-  Math.min(upperBound, Math.max(lowerBound, rawTradePrice)),
-  lob.midPrice,
-);
-
-const tradeQty = Math.min(bb.qty, ba.qty);
-
-    if (tradePrice <= 0 || tradeQty <= 0) {
+    if (rawTradePrice <= 0 || tradeQty <= 0) {
       lob.bids.shift();
       lob.asks.shift();
       continue;
@@ -75,6 +67,19 @@ const tradeQty = Math.min(bb.qty, ba.qty);
       continue;
     }
 
+    /**
+     * Không để 1 lệnh nhỏ làm mid-price nhảy toàn bộ về tradePrice.
+     * Mid-price chỉ điều chỉnh một phần theo price impact.
+     *
+     * T+0 có impact lớn hơn T+2.5 vì thanh khoản quay vòng nhanh hơn,
+     * nhưng vẫn không phải mỗi giao dịch nhỏ quyết định toàn bộ giá.
+     */
+    const impact = settlement === "T+0" ? 0.25 : 0.15;
+    const tradePrice = safe(
+      lob.midPrice + impact * (rawTradePrice - lob.midPrice),
+      rawTradePrice,
+    );
+
     const totalValue = tradePrice * tradeQty;
     const feeRate = settlement === "T+0" ? 0.0025 : 0.0002;
     const fee = totalValue * feeRate;
@@ -83,6 +88,7 @@ const tradeQty = Math.min(bb.qty, ba.qty);
       lob.bids.shift();
       continue;
     }
+
     if (seller.shares[sym] < tradeQty) {
       lob.asks.shift();
       continue;
@@ -90,6 +96,7 @@ const tradeQty = Math.min(bb.qty, ba.qty);
 
     buyer.cash -= totalValue + fee;
     if (buyer.cash < 0) buyer.cash = 0;
+
     seller.shares[sym] -= tradeQty;
 
     const settleDays =
@@ -104,7 +111,9 @@ const tradeQty = Math.min(bb.qty, ba.qty);
     if (settleDays > 0) {
       buyer.lockedShares[sym] += tradeQty;
       seller.lockedCash += totalValue - fee;
+
       const unlockTick = currentTick + Math.round(settleDays * 10);
+
       settlementQueue.push(
         {
           tick: unlockTick,
@@ -130,10 +139,12 @@ const tradeQty = Math.min(bb.qty, ba.qty);
 
     const bType = buyer.type as ActiveAgentType;
     const sType = seller.type as ActiveAgentType;
+
     if (tradesByType[bType]) {
       tradesByType[bType].count++;
       tradesByType[bType].value += totalValue;
     }
+
     if (tradesByType[sType]) {
       tradesByType[sType].count++;
       tradesByType[sType].value += totalValue;
@@ -150,8 +161,10 @@ const tradeQty = Math.min(bb.qty, ba.qty);
 
     bb.qty -= tradeQty;
     ba.qty -= tradeQty;
+
     if (bb.qty <= 0) lob.bids.shift();
     if (ba.qty <= 0) lob.asks.shift();
+
     lob.midPrice = tradePrice;
   }
 
