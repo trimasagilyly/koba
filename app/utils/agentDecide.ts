@@ -8,14 +8,15 @@ import type {
 import { computeEnrichedFairValue } from "./computeEnrichedFairValue";
 import { computeSeededSigma } from "./computeSeededSigma";
 import { compositeSignal } from "./compositeSignal";
+import { computeHFTQuotes } from "./computeHFTQuotes";
 import { rsi } from "./rsi";
 import { T0_VOLUME_SCALE } from "../constants/simulation";
 
 // Hàm hỗ trợ tạo số lượng cổ phiếu ngẫu nhiên theo lô 100.
 // Lưu ý: giữ logic cũ để tránh thay đổi volume quá mạnh trong cùng một lần sửa.
-function getRandomLots(min: number, max: number): number {
-  const lo = Math.max(1, Math.round(min / 100));
-  const hi = Math.max(lo, Math.round(max / 100));
+function getRandomLots(minLots: number, maxLots: number): number {
+  const lo = Math.max(1, Math.floor(minLots));
+  const hi = Math.max(lo, Math.floor(maxLots));
   return (Math.floor(Math.random() * (hi - lo + 1)) + lo) * 100;
 }
 
@@ -209,56 +210,53 @@ export function agentDecideForStock(
   // 3. NHÀ GIAO DỊCH TẦN SUẤT CAO (HFT)
   // ---------------------------------------------------------
   else if (agent.type === "hft") {
-    // HFT được mô hình hóa theo inventory control.
-    // Không dùng targetInv cố định 100,000 cổ phiếu cho mọi mã nữa,
-    // vì như vậy HFT có thể bị thiên mua khi inventory ban đầu thấp hơn target.
-    const invValue = effectiveInventory * midPrice;
-    const hftWealth = Math.max(
-      1,
-      (agent.cash || 0) + (agent.lockedCash || 0) + portfolioValue,
-    );
+  /**
+   * HFT dùng logic market making theo Avellaneda–Stoikov:
+   * - quote phụ thuộc mid price, volatility, inventory và target inventory
+   * - HFT không nên có targetInv cố định cho mọi mã
+   * - target inventory được đặt theo tỷ lệ tài sản của chính agent
+   */
+  const targetInventoryValue = wealth * 0.2;
+  const targetInventory = Math.max(
+    100,
+    Math.floor(targetInventoryValue / midPrice),
+  );
 
-    const invRatio = invValue / hftWealth;
-    const targetInvRatio = 0.2;
+  const { resPrice, spreadHalf } = computeHFTQuotes(
+    midPrice,
+    effectiveInventory,
+    targetInventory,
+    sigma,
+    isT0,
+  );
 
-    // q > 0: giữ cổ phiếu nhiều hơn mục tiêu -> nghiêng về bán
-    // q < 0: giữ cổ phiếu ít hơn mục tiêu -> nghiêng về mua
-    const q = Math.max(
-      -1,
-      Math.min(1, (invRatio - targetInvRatio) / targetInvRatio),
-    );
+  const invValue = effectiveInventory * midPrice;
+  const invRatio = wealth > 0 ? invValue / wealth : 0;
 
-    const gamma = 0.1; // Hệ số ngại rủi ro inventory
-    const kappa = 100; // Độ sâu thanh khoản giả định
+  /**
+   * Nếu inventory cao hơn mục tiêu, HFT có xác suất bán cao hơn.
+   * Nếu inventory thấp hơn mục tiêu, HFT có xác suất mua cao hơn.
+   */
+  const sellProb = Math.min(
+    0.85,
+    Math.max(0.15, 0.5 + (invRatio - 0.2)),
+  );
 
-    // P_res = P_mid - q * gamma * sigma^2
-    const variance = Math.pow(sigma, 2);
-    const Pres = midPrice - q * gamma * variance;
+  side = Math.random() < sellProb ? "sell" : "buy";
+  price = side === "buy" ? resPrice - spreadHalf : resPrice + spreadHalf;
 
-    // delta = gamma * sigma^2 + (2/gamma) * ln(1 + gamma/kappa)
-    const rawSpread =
-      gamma * variance + (2 / gamma) * Math.log(1 + gamma / kappa);
-    const delta = rawSpread * hftSpreadMult;
+  const sigmaPct = midPrice > 0 ? sigma / midPrice : 0.002;
 
-    // HFT cung cấp thanh khoản hai chiều.
-    // Xác suất bán tăng khi inventory cao, xác suất mua tăng khi inventory thấp.
-    const sellProb = Math.min(0.85, Math.max(0.15, 0.5 + q * 0.35));
-    side = Math.random() < sellProb ? "sell" : "buy";
+  /**
+   * Khi volatility cao, HFT giảm size để hạn chế inventory risk.
+   */
+  const volPenalty = Math.max(0.2, 1 - (sigmaPct - 0.01) * 10);
 
-    // P_bid = P_res - delta/2; P_ask = P_res + delta/2
-    price = side === "buy" ? Pres - delta / 2 : Pres + delta / 2;
-
-    const sigmaPct = midPrice > 0 ? sigma / midPrice : 0.002;
-
-    // Khi volatility tăng, HFT giảm size để hạn chế inventory risk.
-    const volPenalty = Math.max(0.2, 1 - (sigmaPct - 0.01) * 10);
-
-    targetQty = getRandomLots(
-      Math.floor(2 * volumeScale * volPenalty),
-      Math.floor(6 * volumeScale * volPenalty),
-    );
-  }
-
+  targetQty = getRandomLots(
+    Math.floor(2 * volumeScale * volPenalty),
+    Math.floor(6 * volumeScale * volPenalty),
+  );
+}
   // ---------------------------------------------------------
   // 4. NHÀ ĐẦU TƯ NHIỄU (Noise Trader)
   // ---------------------------------------------------------
