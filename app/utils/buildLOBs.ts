@@ -3,25 +3,15 @@ import { buildInitialPrices } from "./buildInitialPrices";
 import type { StockLOB } from "./matchOrders";
 
 /**
- * Tạo lịch sử giá trung tính quanh initial price.
+ * Tạo lịch sử giá trung tính tuyệt đối.
  *
  * Lý do:
- * Nếu dùng stock.priceHistory thật ngay từ đầu, nhiều mã có sẵn xu hướng tăng,
- * làm momentum agents nhận tín hiệu mua ngay ở tick đầu.
- *
- * Trong mô phỏng ABM, nên bắt đầu từ trạng thái trung tính để xu hướng tăng/giảm
- * phát sinh nội sinh từ tương tác agent, không phải do dữ liệu lịch sử bơm sẵn.
+ * - Nếu dùng priceHistory thật: momentum có thể bị bơm sẵn xu hướng tăng/giảm.
+ * - Nếu dùng random noise: với momentum 60%, chỉ cần noise âm/dương nhẹ cũng tạo trend ban đầu.
+ * - Lịch sử phẳng giúp mô phỏng bắt đầu từ trạng thái không thiên lệch.
  */
-function buildNeutralHistory(price: number, length = 60): number[] {
-  const history: number[] = [];
-
-  for (let i = 0; i < length; i++) {
-    const tinyNoise = (Math.random() - 0.5) * 0.002; // ±0.1%
-    history.push(price * (1 + tinyNoise));
-  }
-
-  history[history.length - 1] = price;
-  return history;
+function buildFlatHistory(price: number, length = 60): number[] {
+  return Array.from({ length }, () => price);
 }
 
 export function buildLOBs(): Record<string, StockLOB> {
@@ -37,7 +27,7 @@ export function buildLOBs(): Record<string, StockLOB> {
       bids: [],
       asks: [],
       midPrice: price,
-      priceHistory: buildNeutralHistory(price, 60),
+      priceHistory: buildFlatHistory(price, 60),
     };
   }
 
