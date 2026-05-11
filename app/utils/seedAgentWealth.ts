@@ -24,8 +24,8 @@ export function seedAgentWealth(agents: Agent[], numStocks: number) {
         agent.shares[s.symbol] = shares;
       });
     } else if (agent.type === "hft") {
-      agent.cash = 20_000_000_000;
-      const shares = Math.floor(500_000 / numStocks);
+      agent.cash = 20_000_000_000 *m;
+      const shares = Math.floor(500_000 * m / numStocks);
       SIM_STOCKS.forEach((s) => {
         agent.shares[s.symbol] = shares;
       });
