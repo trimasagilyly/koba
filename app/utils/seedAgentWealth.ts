@@ -6,7 +6,9 @@ export function seedAgentWealth(agents: Agent[], numStocks: number) {
     const m = 0.3 + Math.random() * 1.7;
     if (agent.type === "fundamentalist") {
       agent.cash = 150_000_000_000 * m;
-      const shares = Math.floor((400_000 * m) / numStocks);
+      // Fundamentalist giữ nhiều cổ phiếu hơn momentum để có đủ sức bán
+      // trong suốt uptrend và đủ sức mua trong suốt downtrend
+      const shares = Math.floor((1_600_000 * m) / numStocks);
       SIM_STOCKS.forEach((s) => {
         agent.shares[s.symbol] = shares;
       });
