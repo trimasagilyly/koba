@@ -62,12 +62,13 @@ export function computeEnrichedFairValue(stock: StockInfo): number {
     valuationSignal = 0;
   }
 
-  // Fair value được phép lệch tối đa ±20% so với initial price.
-  // Dải ±6% cũ quá hẹp: fundamentalist luôn có tín hiệu yếu và dễ bị momentum áp đảo.
-  // Với ±20%, fundamentalist phản ứng mạnh hơn khi thị trường over/undervalued,
-  // đúng với thực tế thị trường Việt Nam và ABM literature (LeBaron 2006).
-  const fairAdjustment = clamp(valuationSignal * 0.4, -0.20, 0.20);
+  /**
+   * Chỉ cho fair value lệch tối đa ±6% quanh initial price.
+   * Đây là mức đủ để fundamentalists có tín hiệu mua/bán,
+   * nhưng không gây lực bán/mua cực đoan ngay khi mô phỏng bắt đầu.
+   */
+  const fairAdjustment = clamp(valuationSignal * 0.12, -0.06, 0.06);
   const fairValue = base * (1 + fairAdjustment);
 
-  return Math.max(base * 0.80, Math.min(base * 1.20, fairValue));
+  return Math.max(base * 0.94, Math.min(base * 1.06, fairValue));
 }
