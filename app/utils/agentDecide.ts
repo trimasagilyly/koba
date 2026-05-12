@@ -163,54 +163,64 @@ export function agentDecideForStock(
   // ---------------------------------------------------------
   // 3. HFT / MARKET MAKER
   // ---------------------------------------------------------
-  else if (agent.type === "hft") {
-    /**
-     * HFT dùng mô hình quote riêng trong computeHFTQuotes.ts.
-     * Target inventory được đặt theo tỷ lệ tài sản thay vì số cổ phiếu cố định.
-     */
-    const targetInventoryValue = wealth * 0.2;
-    const targetInventory = Math.max(
-      100,
-      Math.floor(targetInventoryValue / midPrice),
-    );
+ else if (agent.type === "hft") {
+  /**
+   * HFT dùng mô hình quote riêng trong computeHFTQuotes.ts.
+   *
+   * Quan trọng:
+   * target inventory phải là target theo từng mã, không phải 20% tổng wealth
+   * áp cho mọi mã. Nếu không, HFT sẽ luôn nghĩ mình thiếu inventory và thiên mua.
+   */
+  const numSymbols = Math.max(1, Object.keys(agent.shares || {}).length);
 
-    const { resPrice, spreadHalf } = computeHFTQuotes(
-      midPrice,
-      effectiveInventory,
-      targetInventory,
-      sigma,
-      isT0,
-    );
+  const targetInventoryValue = (wealth * 0.2) / numSymbols;
 
-    const invValue = effectiveInventory * midPrice;
-    const invRatio = wealth > 0 ? invValue / wealth : 0;
+  const targetInventory = Math.max(
+    100,
+    Math.floor(targetInventoryValue / midPrice),
+  );
 
-    // Nếu inventory cao hơn mục tiêu thì xác suất bán tăng.
-    // Nếu inventory thấp hơn mục tiêu thì xác suất mua tăng.
-    const sellProb = Math.min(
-      0.85,
-      Math.max(0.15, 0.5 + (invRatio - 0.2)),
-    );
+  const { resPrice, spreadHalf } = computeHFTQuotes(
+    midPrice,
+    effectiveInventory,
+    targetInventory,
+    sigma,
+    isT0,
+  );
 
-    side = Math.random() < sellProb ? "sell" : "buy";
-    price = side === "buy" ? resPrice - spreadHalf : resPrice + spreadHalf;
+  const invValue = effectiveInventory * midPrice;
+  const targetInvValue = targetInventory * midPrice;
 
-    const sigmaPct = midPrice > 0 ? sigma / midPrice : 0.002;
+  const inventoryGap =
+    targetInvValue > 0 ? (invValue - targetInvValue) / targetInvValue : 0;
 
-    const volPenalty = Math.max(0.2, 1 - (sigmaPct - 0.01) * 10);
+  /**
+   * Nếu inventory hiện tại cao hơn target của mã này -> nghiêng bán.
+   * Nếu inventory thấp hơn target -> nghiêng mua.
+   */
+  const sellProb = Math.min(
+    0.85,
+    Math.max(0.15, 0.5 + inventoryGap * 0.35),
+  );
 
-    targetQty = getRandomLots(
-      Math.floor(2 * volumeScale * volPenalty),
-      Math.floor(6 * volumeScale * volPenalty),
-    );
+  side = Math.random() < sellProb ? "sell" : "buy";
+  price = side === "buy" ? resPrice - spreadHalf : resPrice + spreadHalf;
 
-    // Cho phép UI slider hftSpreadMult vẫn có tác dụng
-    if (hftSpreadMult !== 1) {
-      const spreadDistance = Math.abs(price - resPrice) * hftSpreadMult;
-      price =
-        side === "buy" ? resPrice - spreadDistance : resPrice + spreadDistance;
-    }
+  const sigmaPct = midPrice > 0 ? sigma / midPrice : 0.002;
+
+  const volPenalty = Math.max(0.2, 1 - (sigmaPct - 0.01) * 10);
+
+  targetQty = getRandomLots(
+    Math.floor(2 * volumeScale * volPenalty),
+    Math.floor(6 * volumeScale * volPenalty),
+  );
+
+  if (hftSpreadMult !== 1) {
+    const spreadDistance = Math.abs(price - resPrice) * hftSpreadMult;
+    price =
+      side === "buy" ? resPrice - spreadDistance : resPrice + spreadDistance;
   }
+}
 
   // ---------------------------------------------------------
   // 4. NOISE TRADER
