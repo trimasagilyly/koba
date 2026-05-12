@@ -114,8 +114,10 @@ export function agentDecideForStock(
     // Giữ logic gốc: tín hiệu kỹ thuật của cổ phiếu + xu hướng thị trường chung
     const combinedSignal = signal * 0.75 + marketReturn * beta * 0.25;
 
+    // Dải 0.002–0.100 thay vì 0.002–0.021: các momentum agent có ngưỡng kích hoạt khác nhau,
+    // tránh tình trạng tất cả cùng mua/bán một lúc — đúng với thực tế thị trường
     const personalSensitivity =
-      (0.002 + (agent.id % 20) * 0.001) * momSensitMult;
+      (0.002 + (agent.id % 50) * 0.002) * momSensitMult;
 
     const sigmaPct = midPrice > 0 ? sigma / midPrice : 0.002;
 
@@ -270,18 +272,21 @@ export function agentDecideForStock(
     }
   }
 
-  // Điều chỉnh giá theo biên độ
-  if (settlement !== "T+0") {
+  // Điều chỉnh giá theo biên độ - áp dụng cho cả T+0 và non-T+0.
+  // Dùng SMA 20 ticks làm tham chiếu thay vì priceHistory[0] (giá cũ nhất):
+  // - SMA20 trôi dần theo thị trường → không ghim cứng tại giá ban đầu
+  // - SMA20 cập nhật chậm hơn midPrice → vẫn tạo được sức cản khi giá rơi nhanh
+  if (driftPct > 0) {
+    const SMA_WINDOW = 20;
+    const recentPrices = priceHistory.slice(-SMA_WINDOW);
     const refPrice =
-      priceHistory.length > 0
-        ? priceHistory[0]
+      recentPrices.length > 0
+        ? recentPrices.reduce((a, b) => a + b, 0) / recentPrices.length
         : stock.initialPrice || midPrice;
 
-    const drift = driftPct || 0;
-
     price = Math.min(
-      refPrice * (1 + drift / 100),
-      Math.max(refPrice * (1 - drift / 100), price),
+      refPrice * (1 + driftPct / 100),
+      Math.max(refPrice * (1 - driftPct / 100), price),
     );
   }
 

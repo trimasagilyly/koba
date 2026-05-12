@@ -13,8 +13,11 @@ export function computeHFTQuotes(
     -1,
     Math.min(1, (inventory - targetInventory) / targetInventory),
   );
-  const sigmaPct = sigma / mid;
-  const gamma = 0.05 / mid;
+  const sigmaPct = sigma > 0 ? sigma / mid : 0.002;
+  // gamma = 0.001 (hằng số tuyệt đối, không chia cho mid):
+  // Với sigma ~ 100 VND, riskPremium = q * 0.001 * 100^2 = 10 VND ≈ 0.1% của giá
+  // → inventory adjustment có ý nghĩa thực tế, thay vì gần bằng 0 như trước.
+  const gamma = 0.001;
   const kappa = 1.5;
 
   const riskPremium = q * gamma * sigma * sigma;

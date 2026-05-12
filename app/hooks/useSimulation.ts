@@ -13,7 +13,7 @@ import type {
   ActiveAgentType,
 } from "../types";
 import { stdDev } from "../utils/stdDev";
-import { TICK_LIMITS } from "../constants/simulation";
+import { TICK_LIMITS, TICKS_PER_SIM_DAY } from "../constants/simulation";
 import { SIM_STOCKS, SIM_SYMBOLS, BASE_POINT } from "../utils/stockData";
 import { computeVNIndex } from "../utils/computeVNIndex";
 import { computeGini } from "../utils/computeGini";
@@ -260,6 +260,7 @@ export function useSimulation(
           settlementQueueRef.current,
           tickRef.current,
           tradesByTypeRef.current,
+          TICKS_PER_SIM_DAY[timeScale] ?? 60,
         );
         allTrades.push(...trades);
         totalVolumeRef.current += volumeDelta;

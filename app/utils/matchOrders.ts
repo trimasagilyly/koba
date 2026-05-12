@@ -33,6 +33,7 @@ export function matchOrders(
   settlementQueue: SettlementEntry[],
   currentTick: number,
   tradesByType: Record<ActiveAgentType, AgentTradeStat>,
+  ticksPerDay: number,
 ): { trades: Trade[]; volumeDelta: number } {
   const trades: Trade[] = [];
   let volumeDelta = 0;
@@ -81,7 +82,8 @@ export function matchOrders(
     );
 
     const totalValue = tradePrice * tradeQty;
-    const feeRate = settlement === "T+0" ? 0.0025 : 0.0002;
+    // Phí giao dịch thực tế VN khoảng 0.15–0.25%, dùng đồng nhất cho cả T+0 và T+2.5
+    const feeRate = 0.0015;
     const fee = totalValue * feeRate;
 
     if (buyer.cash < totalValue + fee) {
@@ -112,7 +114,10 @@ export function matchOrders(
       buyer.lockedShares[sym] += tradeQty;
       seller.lockedCash += totalValue - fee;
 
-      const unlockTick = currentTick + Math.round(settleDays * 10);
+      // Settlement delay tính theo ticks/ngày của time scale hiện tại,
+      // thay vì hằng số * 10 (quá ngắn so với thực tế).
+      // Ví dụ 1D: T+2.5 = 2.5 * 60 = 150 tick; 1W: 2.5 * 400 = 1000 tick.
+      const unlockTick = currentTick + Math.max(1, Math.round(settleDays * ticksPerDay));
 
       settlementQueue.push(
         {
