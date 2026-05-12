@@ -133,36 +133,6 @@ export function seedAgentWealth(agents: Agent[], numStocks: number) {
   };
 
   for (const agent of agents) {
-    const type = getAgentType(agent);
-    byType[type].push(agent);
-
-    agent.cash = 0;
-    agent.lockedCash = 0;
-
-    for (const stock of SIM_STOCKS) {
-      agent.shares[stock.symbol] = 0;
-      agent.lockedShares[stock.symbol] = 0;
-    }
-  }
-
-  for (const type of Object.keys(byType) as ActiveAgentType[]) {
-    const groupAgents = byType[type];
-    if (!groupAgents.length) continue;
-
-    const groupTargetWealth = TOTAL_INITIAL_WEALTH * TARGET_WEALTH_SHARE[type];
-
-    const weights = groupAgents.map(() => getLognormalWeight(DISPERSION[type]));
-    const weightSum = weights.reduce((sum, w) => sum + w, 0);
-
-    for (let i = 0; i < groupAgents.length; i++) {
-      const agent = groupAgents[i];
-      const agentWealth = groupTargetWealth * (weights[i] / weightSum);
-
-      const cash = agentWealth * CASH_RATIO[type];
-      const stockBudget = agentWealth - cash;
-
-      agent.cash = cash;
-      allocateStockBudget(agent, type, stockBudget);
     }
   }
 }
