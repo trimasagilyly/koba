@@ -30,10 +30,8 @@ export function compositeSignal(history: number[]): number {
       ? (last - history[history.length - 21]) / history[history.length - 21]
       : ret10;
 
-  // Giới hạn streak ở ±5: xu hướng kéo dài 60 tick không được khuếch đại hơn xu hướng 5 tick
-  const streak = Math.max(-5, Math.min(5, computeStreak(history))) / 10;
+  const streak = computeStreak(history) / 10;
   const rsiVal = rsi(history, Math.min(14, Math.floor(history.length / 2)));
-  // RSI dùng như xác nhận xu hướng (trend-following), đúng với bản chất momentum trader
   const rsiSignal = (rsiVal - 50) / 100;
 
   return Math.max(
